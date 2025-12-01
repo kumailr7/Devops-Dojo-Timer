@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Coffee, BarChart2, Settings, User as UserIcon, LogOut, Brain, Tag, Plus, CheckSquare, Sparkles, Sun, Moon, Maximize2, Minimize2 } from 'lucide-react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { TimerMode, SessionLog, User, AppConfig, Resource, Task } from './types';
 import { CircularTimer } from './components/CircularTimer';
 import { StatsChart } from './components/StatsChart';
@@ -652,6 +653,7 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+      <SpeedInsights />
     </div>
   );
 };
