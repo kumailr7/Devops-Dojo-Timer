@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Coffee, BarChart2, Settings, User as UserIcon, LogOut, Brain, Tag, Plus, CheckSquare, Sparkles, Sun, Moon, Maximize2, Minimize2 } from 'lucide-react';
 import { SpeedInsights } from '@vercel/speed-insights/react';
+import { useUser, SignInButton, UserButton } from '@clerk/clerk-react';
 import { TimerMode, SessionLog, User, AppConfig, Resource, Task } from './types';
 import { CircularTimer } from './components/CircularTimer';
 import { StatsChart } from './components/StatsChart';
@@ -12,6 +13,7 @@ import { PlannerPanel } from './components/PlannerPanel';
 import { AIChatPanel } from './components/AIChatPanel';
 import { StatsView } from './components/StatsView';
 import { generateProductivityInsights, generateTopicSuggestions } from './services/geminiService';
+import { dbQueries } from './db/queries';
 
 // --- Global Constants ---
 const DEFAULT_TIMERS = {
@@ -24,8 +26,10 @@ const DEFAULT_TIMERS = {
 type ViewState = 'dashboard' | 'planner' | 'ai-chat' | 'stats';
 
 const App: React.FC = () => {
+  // --- Clerk Auth ---
+  const { isSignedIn, user: clerkUser, isLoaded } = useUser();
+  
   // --- State ---
-  const [user, setUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
   const [isZenMode, setIsZenMode] = useState(false);
@@ -77,12 +81,10 @@ const App: React.FC = () => {
     }
 
     const savedLogs = localStorage.getItem('chronos_logs');
-    const savedUser = localStorage.getItem('chronos_user');
     const savedConfig = localStorage.getItem('chronos_config');
     const savedTasks = localStorage.getItem('chronos_tasks');
     
     if (savedLogs) setLogs(JSON.parse(savedLogs));
-    if (savedUser) setUser(JSON.parse(savedUser));
     if (savedTasks) setCurrentTasks(JSON.parse(savedTasks));
     if (savedConfig) {
         const parsedConfig = JSON.parse(savedConfig);
@@ -92,7 +94,47 @@ const App: React.FC = () => {
         setConfig(parsedConfig);
     }
   }, []);
+  
+  // Sync user data when signed in
+  useEffect(() => {
+    if (isSignedIn && clerkUser) {
+      initAudioContext();
+      
+      // Load user data from database
+      const loadUserData = async () => {
+        try {
+          const userId = clerkUser.id;
+          const email = clerkUser.primaryEmailAddress?.emailAddress || '';
+          
+          // Create user if not exists
+          await dbQueries.createUser(userId, email);
+          
+          // Load sessions, tasks, and config from database
+          const [sessions, tasks, userConfig] = await Promise.all([
+            dbQueries.getSessionLogs(userId),
+            dbQueries.getTasks(userId),
+            dbQueries.getUserConfig(userId)
+          ]);
+          
+          setLogs(sessions);
+          setCurrentTasks(tasks);
+          setConfig(userConfig);
+          
+        } catch (error) {
+          console.error('Failed to load user data:', error);
+          // Fall back to localStorage if database fails
+          const savedLogs = localStorage.getItem('chronos_logs');
+          const savedTasks = localStorage.getItem('chronos_tasks');
+          if (savedLogs) setLogs(JSON.parse(savedLogs));
+          if (savedTasks) setCurrentTasks(JSON.parse(savedTasks));
+        }
+      };
+      
+      loadUserData();
+    }
+  }, [isSignedIn, clerkUser]);
 
+  // Auto-save to localStorage as backup
   useEffect(() => {
     localStorage.setItem('chronos_logs', JSON.stringify(logs));
   }, [logs]);
@@ -103,7 +145,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
       localStorage.setItem('chronos_config', JSON.stringify(config));
-  }, [config]);
+      // Sync config to database if signed in
+      if (isSignedIn && clerkUser) {
+        dbQueries.updateUserConfig(clerkUser.id, config).catch(console.error);
+      }
+  }, [config, isSignedIn, clerkUser]);
 
   // Timer Tick Logic
   useEffect(() => {
@@ -193,6 +239,11 @@ const App: React.FC = () => {
       tasks: currentTasks // Save current state of tasks
     };
     setLogs(prev => [...prev, newLog]);
+    
+    // Save session to database
+    if (isSignedIn && clerkUser) {
+      dbQueries.createSessionLog(clerkUser.id, newLog).catch(console.error);
+    }
 
     // Keep tasks persistent but allow clearing logic if needed later
     setCurrentResources([]); 
@@ -245,23 +296,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleLogin = () => {
-    // Init audio on login click too, just in case
-    initAudioContext();
-    const dummyUser: User = {
-      id: '123',
-      name: 'DevOps Engineer',
-      email: 'engineer@dojo.com',
-      avatarUrl: 'https://ui-avatars.com/api/?name=DevOps+Dojo&background=6366f1&color=fff'
-    };
-    setUser(dummyUser);
-    localStorage.setItem('chronos_user', JSON.stringify(dummyUser));
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('chronos_user');
-  };
+  // Removed handleLogin and handleLogout - using Clerk now
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -304,8 +339,18 @@ const App: React.FC = () => {
   };
 
   // --- Render ---
+  
+  // Show loading state while Clerk is initializing
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
 
-  if (!user) {
+  // Show login screen if not signed in
+  if (!isSignedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-4 transition-colors duration-300">
         <div className="max-w-md w-full bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 border border-slate-300 dark:border-slate-700 text-center">
@@ -316,9 +361,13 @@ const App: React.FC = () => {
           </div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">DevOps Dojo AI</h1>
           <p className="text-slate-500 dark:text-slate-400 mb-8">Master your time with Gemini-powered deep learning sessions.</p>
-          <button onClick={handleLogin} className="w-full flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
-            Enter the Dojo
-          </button>
+          <SignInButton mode="modal">
+            <button className="w-full flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-lg shadow-indigo-500/20">
+              <UserIcon className="w-5 h-5" />
+              Sign In with Google or Email
+            </button>
+          </SignInButton>
+          <p className="text-xs text-slate-400 dark:text-slate-600 mt-4">Secure authentication powered by Clerk</p>
         </div>
       </div>
     );
@@ -393,16 +442,12 @@ const App: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-              <img src={user.avatarUrl} alt="User" className="w-8 h-8 rounded-full" />
+              <UserButton afterSignOutUrl="/" />
               <div className="hidden lg:block overflow-hidden">
-                <p className="text-sm font-medium truncate text-slate-700 dark:text-slate-200">{user.name}</p>
-                <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                <p className="text-sm font-medium truncate text-slate-700 dark:text-slate-200">{clerkUser?.firstName || clerkUser?.username || 'User'}</p>
+                <p className="text-xs text-slate-500 truncate">{clerkUser?.primaryEmailAddress?.emailAddress}</p>
               </div>
             </div>
-            <button onClick={handleLogout} className="w-full flex items-center justify-center lg:justify-start gap-3 p-2 text-slate-500 dark:text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-lg transition-colors">
-              <LogOut className="w-5 h-5" />
-              <span className="hidden lg:inline text-sm font-medium">Sign Out</span>
-            </button>
           </div>
         </nav>
       )}
@@ -421,7 +466,7 @@ const App: React.FC = () => {
                    'DevOps Dojo AI'}
               </h1>
               <p className="text-slate-500 dark:text-slate-400 text-sm">
-                  {currentView === 'dashboard' ? `Welcome back, ${user.name.split(' ')[0]} 👋` : 
+                  {currentView === 'dashboard' ? `Welcome back, ${clerkUser?.firstName || clerkUser?.username || 'there'} 👋` : 
                    currentView === 'planner' ? 'Manage your learning objectives and tasks' : 
                    currentView === 'stats' ? 'Track your progress and study habits' :
                    'Your intelligent DevOps assistant'}
