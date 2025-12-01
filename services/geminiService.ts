@@ -48,11 +48,10 @@ export const generateProductivityInsights = async (
     `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: "gemini-1.5-pro",
       contents: prompt,
       config: {
-        systemInstruction: "You are a world-class cognitive science expert specializing in learning efficiency.",
-        thinkingConfig: { thinkingBudget: 1024 } // Use thinking for deeper analysis
+        systemInstruction: "You are a world-class cognitive science expert specializing in learning efficiency."
       }
     });
 
@@ -72,7 +71,7 @@ export const generateTopicSuggestions = async (
   
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       contents: `Suggest 5 advanced sub-topics or related skills for someone learning "${interest}".`,
       config: {
         responseMimeType: "application/json",
@@ -97,7 +96,7 @@ export const createChatSession = () => {
   }
   
   return ai.chats.create({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-1.5-pro',
     config: {
       systemInstruction: "You are an expert DevOps Sensei and AI mentor named 'Dojo AI'. Your goal is to help the user master DevOps concepts, create learning roadmaps, explain complex architectures, and provide mindmap structures. Be concise, technical, and practical. Use Markdown for formatting code, lists, and tables.",
     }
