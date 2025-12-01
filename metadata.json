@@ -1,0 +1,7 @@
+{
+  "name": "DevOps Dojo AI Learning",
+  "description": "An intelligent, Pomodoro-style time tracking application for deep learning and development, powered by Google Gemini 3 for personalized productivity insights.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
